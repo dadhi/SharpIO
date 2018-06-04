@@ -10,6 +10,7 @@ Useful links:
 - [Free and tagless compared - how not to commit to a monad too early](https://softwaremill.com/free-tagless-compared-how-not-to-commit-to-monad-too-early)
 
 Requires C# 7.2
+For `LiveRunner` 
 */
 
 using System;
@@ -27,8 +28,8 @@ namespace FreeIOMonadExample
     {
         public static async Task Main()
         {
-            // Compose, e.g. describe program without running it
-            var program = PrefixLines("d:/some_text_file.txt");
+            // Describe program without running it
+            var program = NumberLines("d:/some_text_file.txt");
 
             // Run program by interpreting its operations
             MockRunner.Run(program);
@@ -38,7 +39,7 @@ namespace FreeIOMonadExample
         }
 
         // Program description
-        private static IO<Unit> PrefixLines(string path) =>
+        private static IO<Unit> NumberLines(string path) =>
               from lines in ReadAllLines(path)
               from _1 in Log($"There are {lines.Count()} lines")
               from _2 in Log("Prepending line numbers")
@@ -82,50 +83,66 @@ namespace FreeIOMonadExample
 
     public static class LiveRunner
     {
-        public static A Run<A>(IO<A> m) =>
-            m is Return<A> r ? r.Result
-            : m is IO<ReadAllLines, IEnumerable<string>, A> ra ? Run(ra.Next(File.ReadAllLines(ra.Input.Path)))
-            : m is IO<WriteAllLines, Unit, A> wa ? Run(wa.Next(fun(() => File.WriteAllLines(wa.Input.Path, wa.Input.Lines))))
-            : m is IO<Log, Unit, A> log ? Run(log.Next(fun(() => Console.WriteLine(log.Input.Message))))
-            : throw new NotSupportedException($"Not supported operation {m}");
+        public static A Run<A>(IO<A> p)
+        {
+            switch (p)
+            {
+                case Return<A> r: 
+                    return r.Result;
+
+                case IO<ReadAllLines, IEnumerable<string>, A> x:
+                    return Run(x.As(i => File.ReadAllLines(i.Path)));
+                case IO<WriteAllLines, Unit, A> x: 
+                    return Run(x.As(i => File.WriteAllLines(i.Path, i.Lines)));
+                case IO<Log, Unit, A> x: 
+                    return Run(x.As(i => Console.WriteLine(i.Message)));
+
+                default: throw new NotSupportedException($"Not supported operation {p}");
+            }
+        }
     }
 
     public static class LiveRunnerAsync
     {
-        public static async Task<A> Run<A>(IO<A> p) =>
-            p is Return<A> r ? r.Result
-            : p is IO<ReadAllLines, IEnumerable<string>, A> ra ? await Run(ra.Next(await ReadAllLines(ra.Input.Path)))
-            : p is IO<WriteAllLines, Unit, A> wa ? await Run(wa.Next(await WriteAllLines(wa.Input.Path, wa.Input.Lines)))
-            : p is IO<Log, Unit, A> log ? await Run(log.Next(fun(() => Console.WriteLine(log.Input.Message))))
-            : throw new NotSupportedException($"Not supported operation {p}");
+        public static async Task<A> Run<A>(IO<A> p)
+        {
+            switch (p)
+            {
+                case Return<A> r:
+                    return r.Result;
 
-        static Task<Unit> WriteAllLines(string path, IEnumerable<string> output) =>
-            Task.Run(() => fun(() => File.WriteAllLines(path, output)));
+                case IO<ReadAllLines, IEnumerable<string>, A> x:
+                    return await Run(x.Next(await File.ReadAllLinesAsync(x.Input.Path)));
+                case IO<WriteAllLines, Unit, A> x:
+                    return await Run(x.As(async i => await File.WriteAllLinesAsync(i.Path, i.Lines)));
+                case IO<Log, Unit, A> x:
+                    return await Run(x.As(i => Console.WriteLine(i.Message)));
 
-        static Task<IEnumerable<string>> ReadAllLines(string path) =>
-            Task.Run<IEnumerable<string>>(() => File.ReadAllLines(path));
+                default: throw new NotSupportedException($"Not supported operation {p}");
+            }
+        }
     }
 
     public static class MockRunner
     {
         // Example of non-recursive (stack-safe) interpreter
-        public static A Run<A>(IO<A> m, bool skipLogging = false)
+        public static A Run<A>(IO<A> p, bool skipLogging = false)
         {
             while (true)
-                switch (m)
+                switch (p)
                 {
                     case Return<A> x:
                         return x.Result;
                     case IO<ReadAllLines, IEnumerable<string>, A> x:
-                        m = x.Next(MockReadAllLines(x.Input.Path));
+                        p = x.Next(MockReadAllLines(x.Input.Path));
                         break;
                     case IO<WriteAllLines, Unit, A> x:
-                        m = x.Next(unit); // do nothing, not interested in output
+                        p = x.Ignore();
                         break;
-                    case IO<Log, Unit, A> log:
-                        m = skipLogging ? log.Next(unit) : log.Next(fun(() => Console.WriteLine(log.Input.Message)));
+                    case IO<Log, Unit, A> x:
+                        p = skipLogging ? x.Ignore() : x.As(i => Console.WriteLine(i.Message));
                         break;
-                    default: throw new NotSupportedException($"Not supported operation {m}");
+                    default: throw new NotSupportedException($"Not supported operation {p}");
                 }
         }
 
@@ -149,38 +166,44 @@ namespace FreeIOMonadExample
         public IO<B> Bind<B>(Func<A, IO<B>> f) => f(Result);
     }
 
-    public class IO<I, R, A> : IO<A>
+    public class IO<I, O, A> : IO<A>
     {
         public readonly I Input;
-        public readonly Func<R, IO<A>> Next;
-        public IO(I input, Func<R, IO<A>> next) => (Input, Next) = (input, next);
+        public readonly Func<O, IO<A>> Next;
+        public IO(I input, Func<O, IO<A>> next) => (Input, Next) = (input, next);
 
-        public IO<B> Bind<B>(Func<A, IO<B>> f) => new IO<I, R, B>(Input, r => Next(r).Bind(f));
+        public IO<B> Bind<B>(Func<A, IO<B>> f) => new IO<I, O, B>(Input, r => Next(r).Bind(f));
     }
 
     public static class IOMonad
     {
-        public static IO<A> Wrap<A>(this A a) =>
+        public static IO<A> Lift<A>(this A a) =>
             new Return<A>(a);
 
         public static IO<B> Select<A, B>(this IO<A> m, Func<A, B> f) =>
-            m.Bind(a => f(a).Wrap());
+            m.Bind(a => f(a).Lift());
 
         public static IO<C> SelectMany<A, B, C>(this IO<A> m, Func<A, IO<B>> f, Func<A, B, C> project) =>
-            m.Bind(a => f(a).Bind(b => project(a, b).Wrap()));
+            m.Bind(a => f(a).Bind(b => project(a, b).Lift()));
     }
 
     public static class IOMonadSugar
     {
-        public static IO<Unit> ToIO<O>(this O op) => new IO<O, Unit, Unit>(op, IOMonad.Wrap);
-        public static IO<R> ToIO<O, R>(this O op) => new IO<O, R, R>(op, IOMonad.Wrap);
+        public static IO<R> ToIO<I, R>(this I input) => new IO<I, R, R>(input, IOMonad.Lift);
+        public static IO<Unit> ToIO<I>(this I input) => input.ToIO<I, Unit>();
+
+        public static IO<A> Ignore<I, A>(this IO<I, Unit, A> x) => x.Next(unit);
+
+        public static IO<A> As<I, O, A>(this IO<I, O, A> x, Func<I, O> process) => x.Next(process(x.Input));
+        public static IO<A> As<I, A>(this IO<I, Unit, A> x, Action<I> process)
+        {
+            process(x.Input);
+            return x.Ignore();
+        }
     }
 
-    public sealed class Unit
+    public struct Unit
     {
         public static readonly Unit unit = new Unit();
-        public static Unit fun(Action a) { a(); return unit; }
-
-        private Unit() { }
     }
 }
