@@ -10,7 +10,7 @@ Useful links:
 - [Free and tagless compared - how not to commit to a monad too early](https://softwaremill.com/free-tagless-compared-how-not-to-commit-to-monad-too-early)
 
 Requires C# 7.2
-For `LiveRunner` 
+For `LiveRunner` to work you need "d:/some_text_file.txt" with couple of lines of text
 */
 
 using System;
@@ -69,7 +69,7 @@ namespace FreeIOMonadExample
         public Log(string message) => Message = message;
     }
 
-    public static class NumberLinesOperations // program algebra
+    public static class NumberLinesOperations
     {
         public static IO<Unit> WriteAllLines(string path, IEnumerable<string> lines) =>
             new WriteAllLines(path, lines).ToIO();
