@@ -8,6 +8,7 @@ Modified from the original https://gist.github.com/louthy/524fbe8965d3a2aae1b576
 Useful links:
 - [John DeGoes: Beyond Free Monads - λC Winter Retreat 2017](https://www.youtube.com/watch?v=A-lmrvsUi2Y)
 - [Free and tagless compared - how not to commit to a monad too early](https://softwaremill.com/free-tagless-compared-how-not-to-commit-to-monad-too-early)
+- [John A De Goes - ZIO: Next-Generation Effects in Scala 2019](https://www.youtube.com/watch?v=mkSHhsJXjdc)
 
 Requires C# 7.2
 For `LiveRunner` to work you need "d:/some_text_file.txt" with couple of lines of text
