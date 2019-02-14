@@ -29,7 +29,7 @@ namespace FreeIOMonadExample
         public static async Task Main()
         {
             // Describe program without running it
-            var program = NumberLines("d:/some_text_file.txt");
+            var program = NumberLines(@"C:\Dev\SharpFree\some_text_file.txt");
 
             // Run program by interpreting its operations
             MockRunner.Run(program);
@@ -42,11 +42,11 @@ namespace FreeIOMonadExample
         private static IO<Unit> NumberLines(string path) =>
               from lines in ReadAllLines(path)
               from _1 in Log($"There are {lines.Count()} lines")
-              from _2 in Log("Prepending line numbers")
+              from _2 in Log("Pre-pending the line numbers")
               let newLines = Enumerable.Range(1, int.MaxValue).Zip(lines, (i, line) => $"{i}: {line}")
               let newFile = path + ".prefixed"
               from _3 in WriteAllLines(newFile, newLines)
-              from _4 in Log($"Lines prepended and file saved successfully to \"{newFile}\"")
+              from _4 in Log($"Lines prepended and file saved successfully to '{newFile}'")
               select unit;
     }
 
@@ -153,7 +153,7 @@ namespace FreeIOMonadExample
     // Monadic IO implementation, can be reused, published to NuGet, etc.
     //-------------------------------------------------------------------
 
-    public interface IO<A>
+    public interface IO<out A>
     {
         IO<B> Bind<B>(Func<A, IO<B>> f);
     }
@@ -195,6 +195,7 @@ namespace FreeIOMonadExample
         public static IO<A> Ignore<I, A>(this IO<I, Unit, A> x) => x.Next(unit);
 
         public static IO<A> As<I, O, A>(this IO<I, O, A> x, Func<I, O> process) => x.Next(process(x.Input));
+
         public static IO<A> As<I, A>(this IO<I, Unit, A> x, Action<I> process)
         {
             process(x.Input);
