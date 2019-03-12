@@ -1,4 +1,4 @@
-# SharpFree
+# SharpIO
 
 Effect values for C# with examples, inspired by Haskell Free Monad and Scalaz ZIO
 
