@@ -20,12 +20,12 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace FreeIOMonadExample
+namespace FreeIOMonad
 {
     using static Unit;
     using static NumberLinesOperations;
 
-    static class Program
+    public class Program
     {
         public static async Task Main()
         {
