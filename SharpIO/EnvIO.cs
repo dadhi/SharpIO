@@ -2,7 +2,6 @@ namespace SharpIODemo
 {
     using System;
     using SharpIO;
-    using static SharpIO.Empty;
     using static SharpIO.Result;
     using static SharpIO.IO;
 
@@ -10,67 +9,81 @@ namespace SharpIODemo
     {
         public static void Main()
         {
-            Console.WriteLine("hey");
+            var game = CreateGame();
+
+            var expected = game.Run(new Env(new TestOut<Env>("OnepunchMan"), new TestLog<Env>()));
+
+            Console.WriteLine(expected);
         }
 
-        public static IO<TEnv, Exception, Empty> GetProgram<TEnv>()
-            where TEnv : ILog<TEnv>, IConsole<TEnv>
+        public static IO<Env, Exception, string> CreateGame() =>
+            from logStart in Log<Env>.Info("Starting the quiz...")
+            from askForName in Out<Env>.WriteLine("Enter your name:")
+            from name in Out<Env>.ReadLine()
+            from logName in Log<Env>.Info($"Your name is {name}")
+            select name;
+
+        public sealed class Env : IWithLog<Env>, IWithOut<Env>
         {
-            return from logStart in Log.Info<TEnv>("Starting the quiz...")
-                from askForName in Out.WriteLine<TEnv>("Enter your name:")
-                from name in Out.ReadLine<TEnv>()
-                from logName in Log.Info<TEnv>($"Name is @{name}")
-                select empty;
+            public IOut<Env> Out { get; }
+            public ILog<Env> Log { get; }
+
+            public Env(IOut<Env> @out, ILog<Env> log) => (Out, Log) = (@out, log);
         }
     }
 
-    public interface IConsole<in TEnv>
+    public class TestOut<E> : IOut<E>
     {
-        IO<TEnv, Empty> WriteLine(string line);
+        private readonly string _output;
 
-        IO<TEnv, Exception, string> ReadLine();
+        public TestOut(string output = default) => _output = output ?? "Wizard";
+
+        public IO<E, Empty> WriteLine(string line) => EmptyIO<E>();
+
+        public IO<E, Exception, string> ReadLine() =>
+            Success(_output, default(Exception)).ToIO<E>();
     }
 
-    public static class Out
+    public class TestLog<E> : ILog<E>
     {
-        public static IO<E, Empty> WriteLine<E>(string line) where E : IConsole<E> =>
-            Use<E>().To(e => e.WriteLine(line));
-
-        public static IO<E, Exception, string> ReadLine<E>() where E : IConsole<E> =>
-            Use<E, Exception>().To(e => e.ReadLine());
+        public IO<E, Empty> Info(string message) => EmptyIO<E>();
     }
 
-    public static class Out<TEnv> where TEnv : IConsole<TEnv>
+    public interface IOut<in E>
     {
-        public static IO<TEnv, Empty> WriteLine(string line) =>
-            Use<TEnv>().To(e => e.WriteLine(line));
+        IO<E, Empty> WriteLine(string line);
 
-        public static IO<TEnv, Exception, string> ReadLine() =>
-            Use<TEnv, Exception>().To(e => e.ReadLine());
+        IO<E, Exception, string> ReadLine();
     }
 
-    public interface ILog<in TEnv>
+    public interface IWithOut<in E>
     {
-        IO<TEnv, Empty> Info(string message);
+        IOut<E> Out { get; }
     }
 
-    public static class Log
+    public static class Out<E> where E : IWithOut<E>
     {
-        public static IO<TEnv, Empty> Info<TEnv>(string message) where TEnv : ILog<TEnv> =>
-            Use<TEnv>().To(e => e.Info(message));
+        public static IO<E, Empty> WriteLine(string line) =>
+            Use<E>().To(e => e.Out.WriteLine(line));
+
+        public static IO<E, Exception, string> ReadLine() =>
+            Use<E, Exception>().To(e => e.Out.ReadLine());
     }
 
-    public class TestOut<TEnv> : IConsole<TEnv>
+    public interface ILog<in E>
     {
-        public IO<TEnv, Empty> WriteLine(string line) => Empty<TEnv>();
-
-        public IO<TEnv, Exception, string> ReadLine() => 
-            Success("hey", default(Exception)).ToIO<TEnv, Exception, string>(); // todo: help inference
+        IO<E, Empty> Info(string message);
     }
 
-    public class TestLog<TEnv> : ILog<TEnv>
+    public interface IWithLog<in E>
     {
-        public IO<TEnv, Empty> Info(string message) => Empty<TEnv>();
+        ILog<E> Log { get; }
+    }
+
+    public static class Log<E> where E : IWithLog<E>
+    {
+        public static IO<E, Empty> Info(string message) =>
+            Use<E>().To(e => e.Log.Info(message));
     }
 }
 
@@ -98,6 +111,11 @@ namespace SharpIO
     {
         public readonly TVal Value;
         public Success(TVal value) => Value = value;
+
+        /// Cheating a bit to help the inference
+        public IO<TEnv, TErr, TVal> ToIO<TEnv>() => this.ToIO<TEnv, TErr, TVal>();
+
+        public override string ToString() => "success: " + Value;
     }
 
     public struct Failure<TErr, TVal> : IResult<TErr, TVal>
@@ -106,20 +124,22 @@ namespace SharpIO
         public Failure(TErr error) => Error = error;
 
         public Failure<TErr, TOther> FailFor<TOther>() => new Failure<TErr, TOther>(Error);
+
+        public override string ToString() => "failure! " + Error;
     }
 
     public static class Result
     {
-        public static IResult<TErr, TVal> Success<TErr, TVal>(TVal value, TErr _ = default) => 
+        public static Success<TErr, TVal> Success<TErr, TVal>(TVal value, TErr _ = default) => 
             new Success<TErr, TVal>(value);
 
-        public static IResult<TErr, Empty> Success<TErr>() => 
+        public static Success<TErr, Empty> Success<TErr>() => 
             new Success<TErr, Empty>(empty);
 
         public static IResult<CannotFail, TVal> Success<TVal>(TVal value) => 
             new Success<CannotFail, TVal>(value);
 
-        public static IResult<CannotFail, Empty> Success() => SuccessEmpty;
+        public static Success<CannotFail, Empty> Success() => SuccessEmpty;
         public static readonly Success<CannotFail, Empty> SuccessEmpty = 
             new Success<CannotFail, Empty>(empty);
 
@@ -130,7 +150,9 @@ namespace SharpIO
             new Failure<TErr, Empty>(error);
 
         public static IResult<TErr, B> Map<TErr, A, B>(this IResult<TErr, A> a, Func<A, B> map) =>
-            a is Success<TErr, A> success ? Success<TErr, B>(map(success.Value)) : ((Failure<TErr, A>)a).FailFor<B>();
+            a is Success<TErr, A> success 
+                ? (IResult<TErr, B>)Success<TErr, B>(map(success.Value)) 
+                : ((Failure<TErr, A>)a).FailFor<B>();
     }
 
     public interface IO<in TEnv, out TErr, out TVal>
@@ -156,23 +178,17 @@ namespace SharpIO
 
     public static class IO
     {
-        public static IResult<TErr, TVal> Run<TEnv, TErr, TVal>(this IResult<TErr, TVal> result, TEnv _ = default) => 
+        static IResult<TErr, TVal> Run<TEnv, TErr, TVal>(this IResult<TErr, TVal> result, TEnv _ = default) => 
             result;
 
         public static IO<TEnv, TErr, TVal> ToIO<TEnv, TErr, TVal>(this IResult<TErr, TVal> result) =>
             new EnvIO<TEnv, TErr, TVal>(result.Run);
 
-        public static IO<TEnv, TErr, TVal> ToIO<TEnv, TErr, TVal>(this TVal value, TErr _ = default, TEnv __ = default) =>
-            new EnvIO<TEnv, TErr, TVal>(Success(value, default(TErr)).Run);
-
-        public static IO<TEnv, TVal> ToIO<TEnv, TVal>(this TVal value, TEnv _ = default) =>
-            new EnvIO<TEnv, TVal>(Success(value).Run);
-
         public static IO<TEnv, TErr, Empty> Empty<TEnv, TErr>() => 
-            new EnvIO<TEnv, TErr, Empty>(Success<TErr>().Run);
+            new EnvIO<TEnv, TErr, Empty>(((IResult<TErr, Empty>)Success<TErr>()).Run);
 
-        public static IO<TEnv, Empty> Empty<TEnv>() => 
-            new EnvIO<TEnv, Empty>(Success().Run);
+        public static IO<TEnv, Empty> EmptyIO<TEnv>() => 
+            new EnvIO<TEnv, Empty>(((IResult<CannotFail, Empty>)Success()).Run);
 
         public static IO<TEnv, TErr, TEnv> Use<TEnv, TErr>() => 
             new EnvIO<TEnv, TErr, TEnv>(env => Success(env, default(TErr)));

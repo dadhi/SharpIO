@@ -20,7 +20,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace FreeIOMonad
+namespace FreeIO
 {
     using static Unit;
     using static NumberLinesOperations;
@@ -33,8 +33,8 @@ namespace FreeIOMonad
             var program = NumberLines(@"C:\Dev\SharpFree\some_text_file.txt");
 
             // Run program by interpreting its operations
-            MockRunner.Run(program);
-            MockRunner.Run(program, skipLogging: true);
+            TestRunner.Run(program);
+            TestRunner.Run(program, skipLogging: true);
             LiveRunner.Run(program);
             await LiveRunnerAsync.Run(program);
         }
@@ -124,7 +124,7 @@ namespace FreeIOMonad
         }
     }
 
-    public static class MockRunner
+    public static class TestRunner
     {
         // Example of non-recursive (stack-safe) interpreter
         public static A Run<A>(IO<A> p, bool skipLogging = false)
