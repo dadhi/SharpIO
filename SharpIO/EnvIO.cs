@@ -107,7 +107,7 @@ namespace SharpIO
 
     public interface IResult<out TErr, out TVal> { }
 
-    public struct Success<TErr, TVal> : IResult<TErr, TVal>
+    public readonly struct Success<TErr, TVal> : IResult<TErr, TVal>
     {
         public readonly TVal Value;
         public Success(TVal value) => Value = value;
@@ -118,7 +118,7 @@ namespace SharpIO
         public override string ToString() => "success: " + Value;
     }
 
-    public struct Failure<TErr, TVal> : IResult<TErr, TVal>
+    public readonly struct Failure<TErr, TVal> : IResult<TErr, TVal>
     {
         public readonly TErr Error;
         public Failure(TErr error) => Error = error;
