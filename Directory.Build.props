@@ -1,0 +1,16 @@
+<Project>
+    <PropertyGroup>
+        <Authors>Maksim Volkau</Authors>
+        <Copyright>Copyright © 2017-2019 Maksim Volkau</Copyright>
+
+        <LangVersion>Latest</LangVersion>
+
+        <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+        <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Remove="**\*.orig" />
+        <None Remove="**\*.ncrunchproject" />
+    </ItemGroup>
+</Project>

@@ -7,7 +7,7 @@ Modified from the original https://gist.github.com/louthy/524fbe8965d3a2aae1b576
  
 Useful links:
 - [John DeGoes: Beyond Free Monads - λC Winter Retreat 2017](https://www.youtube.com/watch?v=A-lmrvsUi2Y)
-- [Free and tagless compared - how not to commit to a monad too early](https://softwaremill.com/free-tagless-compared-how-not-to-commit-to-monad-too-early)
+- [Free and Tagless compared - how not to commit to a monad too early](https://softwaremill.com/free-tagless-compared-how-not-to-commit-to-monad-too-early)
 - [John A De Goes - ZIO: Next-Generation Effects in Scala 2019](https://www.youtube.com/watch?v=mkSHhsJXjdc)
 
 Requires C# 7.2
@@ -30,13 +30,13 @@ namespace FreeIO
         public static async Task Main()
         {
             // Describe program without running it
-            var program = NumberLines(@"C:\Dev\SharpFree\some_text_file.txt");
+            var program = NumberLines(@"C:\Dev\SharpIO\some_text_file.txt");
 
             // Run program by interpreting its operations
             TestRunner.Run(program);
             TestRunner.Run(program, skipLogging: true);
             LiveRunner.Run(program);
-            await LiveRunnerAsync.Run(program);
+            await AsyncLiveRunner.RunAsync(program);
         }
 
         // Program description
@@ -103,9 +103,9 @@ namespace FreeIO
         }
     }
 
-    public static class LiveRunnerAsync
+    public static class AsyncLiveRunner
     {
-        public static async Task<A> Run<A>(IO<A> p)
+        public static async Task<A> RunAsync<A>(IO<A> p)
         {
             switch (p)
             {
@@ -113,11 +113,11 @@ namespace FreeIO
                     return r.Result;
 
                 case IO<ReadAllLines, IEnumerable<string>, A> x:
-                    return await Run(x.Next(await File.ReadAllLinesAsync(x.Input.Path)));
+                    return await RunAsync(x.Next(await File.ReadAllLinesAsync(x.Input.Path)));
                 case IO<WriteAllLines, Unit, A> x:
-                    return await Run(x.As(async i => await File.WriteAllLinesAsync(i.Path, i.Lines)));
+                    return await RunAsync(x.As(async i => await File.WriteAllLinesAsync(i.Path, i.Lines)));
                 case IO<Log, Unit, A> x:
-                    return await Run(x.As(i => Console.WriteLine(i.Message)));
+                    return await RunAsync(x.As(i => Console.WriteLine(i.Message)));
 
                 default: throw new NotSupportedException($"Not supported operation {p}");
             }
@@ -129,26 +129,25 @@ namespace FreeIO
         // Example of non-recursive (stack-safe) interpreter
         public static A Run<A>(IO<A> p, bool skipLogging = false)
         {
+            IEnumerable<string> ReadAllLines(string path) => new[] { "Hello", "World", path };
+
             while (true)
                 switch (p)
                 {
                     case Return<A> x:
                         return x.Result;
                     case IO<ReadAllLines, IEnumerable<string>, A> x:
-                        p = x.Next(MockReadAllLines(x.Input.Path));
+                        p = x.Next(ReadAllLines(x.Input.Path));
                         break;
                     case IO<WriteAllLines, Unit, A> x:
-                        p = x.Ignore();
+                        p = x.Skip();
                         break;
                     case IO<Log, Unit, A> x:
-                        p = skipLogging ? x.Ignore() : x.As(i => Console.WriteLine(i.Message));
+                        p = skipLogging ? x.Skip() : x.As(i => Console.WriteLine(i.Message));
                         break;
                     default: throw new NotSupportedException($"Not supported operation {p}");
                 }
         }
-
-        static IEnumerable<string> MockReadAllLines(string path) =>
-            new[] { "Hello", "World", path };
     }
 
     // Monadic IO implementation, can be reused, published to NuGet, etc.
@@ -159,7 +158,7 @@ namespace FreeIO
         IO<B> Bind<B>(Func<A, IO<B>> f);
     }
 
-    public sealed class Return<A> : IO<A>
+    public struct Return<A> : IO<A>
     {
         public readonly A Result;
         public Return(A a) => Result = a;
@@ -171,6 +170,7 @@ namespace FreeIO
     {
         public readonly I Input;
         public readonly Func<O, IO<A>> Next;
+
         public IO(I input, Func<O, IO<A>> next) => (Input, Next) = (input, next);
 
         public IO<B> Bind<B>(Func<A, IO<B>> f) => new IO<I, O, B>(Input, r => Next(r).Bind(f));
@@ -191,16 +191,17 @@ namespace FreeIO
     public static class IOMonadSugar
     {
         public static IO<R> ToIO<I, R>(this I input) => new IO<I, R, R>(input, IOMonad.Lift);
+
         public static IO<Unit> ToIO<I>(this I input) => input.ToIO<I, Unit>();
 
-        public static IO<A> Ignore<I, A>(this IO<I, Unit, A> x) => x.Next(unit);
+        public static IO<A> Skip<I, A>(this IO<I, Unit, A> x) => x.Next(unit);
 
         public static IO<A> As<I, O, A>(this IO<I, O, A> x, Func<I, O> process) => x.Next(process(x.Input));
 
         public static IO<A> As<I, A>(this IO<I, Unit, A> x, Action<I> process)
         {
             process(x.Input);
-            return x.Ignore();
+            return x.Skip();
         }
     }
 
