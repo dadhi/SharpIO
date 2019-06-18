@@ -29,10 +29,10 @@ namespace FreeIO
     {
         public static async Task Main()
         {
-            // Describe program without running it
+            // Describe program without running it:
             var program = NumberLines(@"C:\Dev\SharpIO\some_text_file.txt");
 
-            // Run program by interpreting its operations
+            // Actually running the program using different runners (interpreters):
             TestRunner.Run(program);
             TestRunner.Run(program, skipLogging: true);
             LiveRunner.Run(program);
@@ -84,42 +84,42 @@ namespace FreeIO
 
     public static class LiveRunner
     {
-        public static A Run<A>(IO<A> p)
+        public static A Run<A>(IO<A> program)
         {
-            switch (p)
+            switch (program)
             {
-                case Return<A> r: 
-                    return r.Result;
+                case IO<ReadAllLines, IEnumerable<string>, A> p:
+                    return Run(p.Next(File.ReadAllLines(p.Input.Path)));
 
-                case IO<ReadAllLines, IEnumerable<string>, A> x:
-                    return Run(x.As(i => File.ReadAllLines(i.Path)));
-                case IO<WriteAllLines, Unit, A> x: 
-                    return Run(x.As(i => File.WriteAllLines(i.Path, i.Lines)));
-                case IO<Log, Unit, A> x: 
-                    return Run(x.As(i => Console.WriteLine(i.Message)));
+                case IO<WriteAllLines, Unit, A> p: 
+                    return Run(p.Do(x => File.WriteAllLines(x.Path, x.Lines)));
 
-                default: throw new NotSupportedException($"Not supported operation {p}");
+                case IO<Log, Unit, A> p: 
+                    return Run(p.Do(x => Console.WriteLine(x.Message)));
+
+                default:
+                    return ((Return<A>)program).Result;
             }
         }
     }
 
     public static class AsyncLiveRunner
     {
-        public static async Task<A> RunAsync<A>(IO<A> p)
+        public static async Task<A> RunAsync<A>(IO<A> program)
         {
-            switch (p)
+            switch (program)
             {
-                case Return<A> r:
-                    return r.Result;
+                case IO<ReadAllLines, IEnumerable<string>, A> p:
+                    return await RunAsync(p.Next(await File.ReadAllLinesAsync(p.Input.Path)));
 
-                case IO<ReadAllLines, IEnumerable<string>, A> x:
-                    return await RunAsync(x.Next(await File.ReadAllLinesAsync(x.Input.Path)));
-                case IO<WriteAllLines, Unit, A> x:
-                    return await RunAsync(x.As(async i => await File.WriteAllLinesAsync(i.Path, i.Lines)));
-                case IO<Log, Unit, A> x:
-                    return await RunAsync(x.As(i => Console.WriteLine(i.Message)));
+                case IO<WriteAllLines, Unit, A> p:
+                    return await RunAsync(p.Do(async x => await File.WriteAllLinesAsync(x.Path, x.Lines)));
 
-                default: throw new NotSupportedException($"Not supported operation {p}");
+                case IO<Log, Unit, A> p:
+                    return await RunAsync(p.Do(i => Console.WriteLine(i.Message)));
+
+                default:
+                    return ((Return<A>)program).Result;
             }
         }
     }
@@ -127,25 +127,24 @@ namespace FreeIO
     public static class TestRunner
     {
         // Example of non-recursive (stack-safe) interpreter
-        public static A Run<A>(IO<A> p, bool skipLogging = false)
+        public static A Run<A>(IO<A> program, bool skipLogging = false)
         {
             IEnumerable<string> ReadAllLines(string path) => new[] { "Hello", "World", path };
 
             while (true)
-                switch (p)
+                switch (program)
                 {
-                    case Return<A> x:
-                        return x.Result;
-                    case IO<ReadAllLines, IEnumerable<string>, A> x:
-                        p = x.Next(ReadAllLines(x.Input.Path));
+                    case IO<ReadAllLines, IEnumerable<string>, A> p:
+                        program = p.Next(ReadAllLines(p.Input.Path));
                         break;
-                    case IO<WriteAllLines, Unit, A> x:
-                        p = x.Skip();
+                    case IO<WriteAllLines, Unit, A> p:
+                        program = p.Skip();
                         break;
-                    case IO<Log, Unit, A> x:
-                        p = skipLogging ? x.Skip() : x.As(i => Console.WriteLine(i.Message));
+                    case IO<Log, Unit, A> p:
+                        program = skipLogging ? p.Skip() : p.Do(x => Console.WriteLine(x.Message));
                         break;
-                    default: throw new NotSupportedException($"Not supported operation {p}");
+                    default:
+                        return ((Return<A>)program).Result;
                 }
         }
     }
@@ -194,14 +193,12 @@ namespace FreeIO
 
         public static IO<Unit> ToIO<I>(this I input) => input.ToIO<I, Unit>();
 
-        public static IO<A> Skip<I, A>(this IO<I, Unit, A> x) => x.Next(unit);
+        public static IO<A> Skip<I, A>(this IO<I, Unit, A> io) => io.Next(unit);
 
-        public static IO<A> As<I, O, A>(this IO<I, O, A> x, Func<I, O> process) => x.Next(process(x.Input));
-
-        public static IO<A> As<I, A>(this IO<I, Unit, A> x, Action<I> process)
+        public static IO<A> Do<I, A>(this IO<I, Unit, A> io, Action<I> effect)
         {
-            process(x.Input);
-            return x.Skip();
+            effect(io.Input);
+            return io.Skip();
         }
     }
 
