@@ -98,7 +98,7 @@ namespace FreeIO
                     return Run(p.Do(x => Console.WriteLine(x.Message)));
 
                 default:
-                    return ((Return<A>)program).Result;
+                    return program.Exit();
             }
         }
     }
@@ -119,7 +119,7 @@ namespace FreeIO
                     return await RunAsync(p.Do(i => Console.WriteLine(i.Message)));
 
                 default:
-                    return ((Return<A>)program).Result;
+                    return program.Exit();
             }
         }
     }
@@ -144,7 +144,7 @@ namespace FreeIO
                         program = skipLogging ? p.Skip() : p.Do(x => Console.WriteLine(x.Message));
                         break;
                     default:
-                        return ((Return<A>)program).Result;
+                        return program.Exit();
                 }
         }
     }
@@ -185,6 +185,9 @@ namespace FreeIO
 
         public static IO<C> SelectMany<A, B, C>(this IO<A> m, Func<A, IO<B>> f, Func<A, B, C> project) =>
             m.Bind(a => f(a).Bind(b => project(a, b).Lift()));
+
+        public static A Exit<A>(this IO<A> m) =>
+            ((Return<A>)m).Result;
     }
 
     public static class IOMonadSugar

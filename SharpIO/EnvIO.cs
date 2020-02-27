@@ -1,3 +1,6 @@
+using System.Reflection;
+using System.Runtime.CompilerServices;
+
 namespace SharpIODemo
 {
     using System;
@@ -27,7 +30,7 @@ namespace SharpIODemo
         {
             public IConsole<Env> Console { get; }
             public ILog<Env> Log { get; }
-            public Env(IConsole<Env> console, ILog<Env> log) => (Console, Log) = (console, log);
+            public Env(IConsole<Env> console, ILog<Env> log) => (Console, Log) = (console, log).EnsureNotNull();
         }
     }
 
@@ -69,19 +72,19 @@ namespace SharpIODemo
         public IO<TEnv, Nothing> Info(string message) => DoNothing<TEnv>();
     }
 
-    public static class Out<E> where E : IWithConsole<E>
+    public static class Out<TEnv> where TEnv : IWithConsole<TEnv>
     {
-        public static IO<E, Nothing> WriteLine(string line) =>
-            Use<E>().To(e => e.Console.WriteLine(line));
+        public static IO<TEnv, Nothing> WriteLine(string line) =>
+            Use<TEnv>().To(e => e.Console.WriteLine(line));
 
-        public static IO<E, Exception, string> ReadLine() =>
-            Use<E, Exception>().To(e => e.Console.ReadLine());
+        public static IO<TEnv, Exception, string> ReadLine() =>
+            Use<TEnv, Exception>().To(e => e.Console.ReadLine());
     }
 
-    public static class Log<E> where E : IWithLog<E>
+    public static class Log<TEnv> where TEnv : IWithLog<TEnv>
     {
-        public static IO<E, Nothing> Info(string message) =>
-            Use<E>().To(e => e.Log.Info(message));
+        public static IO<TEnv, Nothing> Info(string message) =>
+            Use<TEnv>().To(e => e.Log.Info(message));
     }
 }
 
@@ -110,7 +113,7 @@ namespace SharpIO
         public readonly TVal Value;
         public Success(TVal value) => Value = value;
 
-        /// Cheating a bit to help the inference
+        /// Helping the inference
         public IO<TEnv, TErr, TVal> ToIO<TEnv>() => this.ToIO<TEnv, TErr, TVal>();
 
         public override string ToString() => "success: " + Value;
@@ -304,5 +307,13 @@ namespace SharpIO
 
                 return ((Failure<TErr, A>)aRes).FailFor<C>();
             });
+    }
+
+    public static class Ensure
+    {
+        public static (T1, T2) EnsureNotNull<T1, T2>(in this (T1, T2) x) =>
+            x.Item1 is null ? throw new ArgumentNullException("???", $"arg0 of '{typeof(T1)}' should not be null") :
+            x.Item2 is null ? throw new ArgumentNullException("???", $"arg1 is '{typeof(T2)}' should not be null") :
+            x;
     }
 }
