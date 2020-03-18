@@ -1,13 +1,10 @@
-using System.Reflection;
-using System.Runtime.CompilerServices;
+using System;
+using SharpIO;
+using static SharpIO.Result;
+using static SharpIO.IO;
 
 namespace SharpIODemo
 {
-    using System;
-    using SharpIO;
-    using static SharpIO.Result;
-    using static SharpIO.IO;
-
     public class Program
     {
         public static void Main()

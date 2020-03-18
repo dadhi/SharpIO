@@ -10,8 +10,10 @@ Useful links:
 - [Free and Tagless compared - how not to commit to a monad too early](https://softwaremill.com/free-tagless-compared-how-not-to-commit-to-monad-too-early)
 - [John A De Goes - ZIO: Next-Generation Effects in Scala 2019](https://www.youtube.com/watch?v=mkSHhsJXjdc)
 
-Requires C# 7.2
+Requires: 
+
 For `LiveRunner` to work you need "d:/some_text_file.txt" with couple of lines of text
+
 */
 
 using System;
@@ -30,7 +32,7 @@ namespace FreeIO
         public static async Task Main()
         {
             // Describe program without running it:
-            var program = NumberLines(@"C:\Dev\SharpIO\some_text_file.txt");
+            var program = NumberLines(@"C:\Dev\some_text_file.txt");
 
             // Actually running the program using different runners (interpreters):
             TestRunner.Run(program);
@@ -84,44 +86,36 @@ namespace FreeIO
 
     public static class LiveRunner
     {
-        public static A Run<A>(IO<A> program)
+        public static A Run<A>(IO<A> program) => program switch
         {
-            switch (program)
-            {
-                case IO<ReadAllLines, IEnumerable<string>, A> p:
-                    return Run(p.Next(File.ReadAllLines(p.Input.Path)));
+            IO<ReadAllLines, IEnumerable<string>, A> p => Run(
+                p.Get(File.ReadAllLines(p.Input.Path))),
+            
+            IO<WriteAllLines, Unit, A> p => Run(
+                p.Do(x => File.WriteAllLines(x.Path, x.Lines))),
 
-                case IO<WriteAllLines, Unit, A> p: 
-                    return Run(p.Do(x => File.WriteAllLines(x.Path, x.Lines)));
+            IO<Log, Unit, A> p => Run(
+                p.Do(x => Console.WriteLine(x.Message))),
 
-                case IO<Log, Unit, A> p: 
-                    return Run(p.Do(x => Console.WriteLine(x.Message)));
-
-                default:
-                    return program.Exit();
-            }
-        }
+            _ => program.Result()
+        };
     }
 
     public static class AsyncLiveRunner
     {
-        public static async Task<A> RunAsync<A>(IO<A> program)
+        public static async Task<A> RunAsync<A>(IO<A> program) => program switch
         {
-            switch (program)
-            {
-                case IO<ReadAllLines, IEnumerable<string>, A> p:
-                    return await RunAsync(p.Next(await File.ReadAllLinesAsync(p.Input.Path)));
-
-                case IO<WriteAllLines, Unit, A> p:
-                    return await RunAsync(p.Do(async x => await File.WriteAllLinesAsync(x.Path, x.Lines)));
-
-                case IO<Log, Unit, A> p:
-                    return await RunAsync(p.Do(i => Console.WriteLine(i.Message)));
-
-                default:
-                    return program.Exit();
-            }
-        }
+            IO<ReadAllLines, IEnumerable<string>, A> p => await RunAsync(
+                p.Get(await File.ReadAllLinesAsync(p.Input.Path))),
+            
+            IO<WriteAllLines, Unit, A> p => await RunAsync(
+                p.Do(async x => await File.WriteAllLinesAsync(x.Path, x.Lines))),
+            
+            IO<Log, Unit, A> p => await RunAsync(
+                p.Do(i => Console.WriteLine(i.Message))),
+            
+            _ => program.Result()
+        };
     }
 
     public static class TestRunner
@@ -131,21 +125,19 @@ namespace FreeIO
         {
             IEnumerable<string> ReadAllLines(string path) => new[] { "Hello", "World", path };
 
-            while (true)
-                switch (program)
+            while (program is IComplete == false)
+                program = program switch
                 {
-                    case IO<ReadAllLines, IEnumerable<string>, A> p:
-                        program = p.Next(ReadAllLines(p.Input.Path));
-                        break;
-                    case IO<WriteAllLines, Unit, A> p:
-                        program = p.Skip();
-                        break;
-                    case IO<Log, Unit, A> p:
-                        program = skipLogging ? p.Skip() : p.Do(x => Console.WriteLine(x.Message));
-                        break;
-                    default:
-                        return program.Exit();
-                }
+                    IO<ReadAllLines, IEnumerable<string>, A> p => p.Get(ReadAllLines(p.Input.Path)),
+                    
+                    IO<WriteAllLines, Unit, A> p => p.Skip(),
+                    
+                    IO<Log, Unit, A> p => (skipLogging ? p.Skip() : p.Do(x => Console.WriteLine(x.Message))),
+                    
+                    _ => program // todo should we throw?
+                };
+
+            return program.Result();
         }
     }
 
@@ -157,10 +149,15 @@ namespace FreeIO
         IO<B> Bind<B>(Func<A, IO<B>> f);
     }
 
-    public struct Return<A> : IO<A>
+    public interface IComplete { }
+
+    public struct Complete<A> : IO<A>, IComplete
     {
+        public static readonly IComplete NoResult = new Complete<Unit>();
+
         public readonly A Result;
-        public Return(A a) => Result = a;
+
+        public Complete(A a) => Result = a;
 
         public IO<B> Bind<B>(Func<A, IO<B>> f) => f(Result);
     }
@@ -168,17 +165,17 @@ namespace FreeIO
     public class IO<I, O, A> : IO<A>
     {
         public readonly I Input;
-        public readonly Func<O, IO<A>> Next;
+        public readonly Func<O, IO<A>> Get;
 
-        public IO(I input, Func<O, IO<A>> next) => (Input, Next) = (input, next);
+        public IO(I input, Func<O, IO<A>> next) => (Input, Get) = (input, next);
 
-        public IO<B> Bind<B>(Func<A, IO<B>> f) => new IO<I, O, B>(Input, r => Next(r).Bind(f));
+        public IO<B> Bind<B>(Func<A, IO<B>> f) => new IO<I, O, B>(Input, r => Get(r).Bind(f));
     }
 
     public static class IOMonad
     {
         public static IO<A> Lift<A>(this A a) =>
-            new Return<A>(a);
+            new Complete<A>(a);
 
         public static IO<B> Select<A, B>(this IO<A> m, Func<A, B> f) =>
             m.Bind(a => f(a).Lift());
@@ -186,8 +183,8 @@ namespace FreeIO
         public static IO<C> SelectMany<A, B, C>(this IO<A> m, Func<A, IO<B>> f, Func<A, B, C> project) =>
             m.Bind(a => f(a).Bind(b => project(a, b).Lift()));
 
-        public static A Exit<A>(this IO<A> m) =>
-            ((Return<A>)m).Result;
+        public static A Result<A>(this IO<A> m) =>
+            ((Complete<A>)m).Result;
     }
 
     public static class IOMonadSugar
@@ -196,7 +193,7 @@ namespace FreeIO
 
         public static IO<Unit> ToIO<I>(this I input) => input.ToIO<I, Unit>();
 
-        public static IO<A> Skip<I, A>(this IO<I, Unit, A> io) => io.Next(unit);
+        public static IO<A> Skip<I, A>(this IO<I, Unit, A> io) => io.Get(unit);
 
         public static IO<A> Do<I, A>(this IO<I, Unit, A> io, Action<I> effect)
         {
