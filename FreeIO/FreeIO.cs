@@ -22,6 +22,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using static FreeIO.Unit;
+using SharpIO;
 
 namespace FreeIO.Example
 {
@@ -142,6 +143,59 @@ namespace FreeIO.Example
     }
 }
 
+namespace FreeIO2
+{
+    public interface IComplete { }
+
+    public interface IO2<out T, TErr, TVal> where T : IResult<TErr, TVal>
+    {
+        IO2<R, RErr, RVal> Bind<R, RErr, RVal>(Func<T, IO2<R, RErr, RVal>> f) where R : IResult<RErr, RVal>;
+    }
+
+    public class IO2<TIn, TOut, T, TErr, TVal> : IO2<T, TErr, TVal> where T : IResult<TErr, TVal>
+    {
+        public readonly TIn Input;
+        public readonly Func<TOut, IO2<T, TErr, TVal>> Wrap;
+
+        public IO2(TIn input, Func<TOut, IO2<T, TErr, TVal>> wrap) => (Input, Wrap) = (input, wrap);
+
+        public IO2<R, RErr, RVal> Bind<R, RErr, RVal>(Func<T, IO2<R, RErr, RVal>> f) where R : IResult<RErr, RVal> =>
+            new IO2<TIn, TOut, R, RErr, RVal>(Input, x => Wrap(x).Bind(f));
+    }
+
+    public struct Complete2<T, TErr, TVal> : IO2<T, TErr, TVal>, IComplete where T : IResult<TErr, TVal>
+    {
+        public readonly T Result;
+
+        public Complete2(T result) => Result = result;
+
+        public IO2<R, RErr, RVal> Bind<R, RErr, RVal>(Func<T, IO2<R, RErr, RVal>> f) where R : IResult<RErr, RVal> =>
+            f(Result);
+    }
+
+    public static class IOLinq
+    {
+        public static IO2<T, TErr, TVal> Pure<T, TErr, TVal>(this T result) 
+            where T : IResult<TErr, TVal> =>
+            new Complete2<T, TErr, TVal>(result);
+
+        public static IO2<R, RErr, RVal> Select<T, TErr, TVal, R, RErr, RVal>(this IO2<T, TErr, TVal> m, Func<T, R> f) 
+            where T : IResult<TErr, TVal>
+            where R : IResult<RErr, RVal> =>
+            m.Bind(a => f(a).Pure<R, RErr, RVal>());
+
+        public static IO2<R, RErr, RVal> SelectMany<T, TErr, TVal, R, RErr, RVal, M, MErr, MVal>(this IO2<T, TErr, TVal> m, Func<T, IO2<M, MErr, MVal>> f, Func<T, M, R> project)
+            where T : IResult<TErr, TVal>
+            where M : IResult<MErr, MVal>
+            where R : IResult<RErr, RVal> =>
+            m.Bind(a => f(a).Bind(b => project(a, b).Pure<R, RErr, RVal>()));
+
+        public static T Result<T, TErr, TVal>(this IO2<T, TErr, TVal> m)
+            where T : IResult<TErr, TVal> =>
+            ((Complete2<T, TErr, TVal>)m).Result;
+    }
+}
+
 // The actual library implementation 
 namespace FreeIO
 { 
@@ -175,14 +229,14 @@ namespace FreeIO
 
     public static class IOMonad
     {
-        public static IO<A> Lift<A>(this A a) =>
+        public static IO<A> Pure<A>(this A a) =>
             new Complete<A>(a);
 
         public static IO<B> Select<A, B>(this IO<A> m, Func<A, B> f) =>
-            m.Bind(a => f(a).Lift());
+            m.Bind(a => f(a).Pure());
 
         public static IO<C> SelectMany<A, B, C>(this IO<A> m, Func<A, IO<B>> f, Func<A, B, C> project) =>
-            m.Bind(a => f(a).Bind(b => project(a, b).Lift()));
+            m.Bind(a => f(a).Bind(b => project(a, b).Pure()));
 
         public static A Result<A>(this IO<A> m) =>
             ((Complete<A>)m).Result;
@@ -190,7 +244,7 @@ namespace FreeIO
 
     public static class IOMonadSugar
     {
-        public static IO<R> ToIO<I, R>(this I input) => new IO<I, R, R>(input, IOMonad.Lift);
+        public static IO<R> ToIO<I, R>(this I input) => new IO<I, R, R>(input, IOMonad.Pure);
 
         public static IO<Unit> ToIO<I>(this I input) => input.ToIO<I, Unit>();
 

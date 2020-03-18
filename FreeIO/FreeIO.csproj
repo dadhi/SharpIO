@@ -6,4 +6,8 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\SharpIO\SharpIO.csproj" />
+  </ItemGroup>
+
 </Project>
