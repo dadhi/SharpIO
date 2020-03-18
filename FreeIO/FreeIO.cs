@@ -21,10 +21,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using static FreeIO.Unit;
 
-namespace FreeIO
+namespace FreeIO.Example
 {
-    using static Unit;
     using static NumberLinesOperations;
 
     public class Program
@@ -140,10 +140,11 @@ namespace FreeIO
             return program.Result();
         }
     }
+}
 
-    // Monadic IO implementation, can be reused, published to NuGet, etc.
-    //-------------------------------------------------------------------
-
+// The actual library implementation 
+namespace FreeIO
+{ 
     public interface IO<out A>
     {
         IO<B> Bind<B>(Func<A, IO<B>> f);
