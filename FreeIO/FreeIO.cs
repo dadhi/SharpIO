@@ -33,21 +33,28 @@ namespace FreeIO
             var program = NumberLines(@"C:\Dev\SharpIO\some_text_file.txt");
 
             // Actually running the program using different runners (interpreters):
+            Console.WriteLine("- TestRunner:");
             TestRunner.Run(program);
+
+            Console.WriteLine("- TestRunner with no logging - empty runner:");
             TestRunner.Run(program, skipLogging: true);
+            
+            Console.WriteLine("- LiveRunner:");
             LiveRunner.Run(program);
-            await AsyncLiveRunner.RunAsync(program);
+
+            Console.WriteLine("- AsyncLiveRunner:");
+            await AsyncLiveRunner.Run(program);
         }
 
         // Program description
         private static IO<Unit> NumberLines(string path) =>
               from lines in ReadAllLines(path)
-              from _1 in Log($"There are {lines.Count()} lines")
-              from _2 in Log("Pre-pending the line numbers")
+              from logLineCount in Log($"There are {lines.Count()} lines")
+              from logHeader in Log("Pre-pending the line numbers")
               let newLines = Enumerable.Range(1, int.MaxValue).Zip(lines, (i, line) => $"{i}: {line}")
               let newFile = path + ".prefixed"
-              from _3 in WriteAllLines(newFile, newLines)
-              from _4 in Log($"Lines prepended and file saved successfully to '{newFile}'")
+              from flushLines in WriteAllLines(newFile, newLines)
+              from logSuccess in Log($"Lines prepended and file saved successfully to '{newFile}'")
               select unit;
     }
 
@@ -88,63 +95,70 @@ namespace FreeIO
         {
             switch (program)
             {
-                case IO<ReadAllLines, IEnumerable<string>, A> p:
-                    return Run(p.Next(File.ReadAllLines(p.Input.Path)));
+                case P<ReadAllLines, IEnumerable<string>, A> p:
+                    // return Run(p.Step(File.ReadAllLines(p.Input.Path)));
+                    return Run(p.Step(TestRunner.ReadAllLines(p.Input.Path)));
 
-                case IO<WriteAllLines, Unit, A> p: 
-                    return Run(p.Do(x => File.WriteAllLines(x.Path, x.Lines)));
+                case P<WriteAllLines, Unit, A> p: 
+                    // return Run(p.Do(x => File.WriteAllLines(x.Path, x.Lines)));
+                    return Run(p.Do(x => TestRunner.WriteAllLines(x.Path, x.Lines)));
 
-                case IO<Log, Unit, A> p: 
-                    return Run(p.Do(x => Console.WriteLine(x.Message)));
+                case P<Log, Unit, A> p: 
+                    return Run(p.Do(log => Console.WriteLine(log.Message)));
 
                 default:
-                    return program.Exit();
+                    return program.Return();
             }
         }
     }
 
     public static class AsyncLiveRunner
     {
-        public static async Task<A> RunAsync<A>(IO<A> program)
+        public static async Task<A> Run<A>(IO<A> program)
         {
             switch (program)
             {
-                case IO<ReadAllLines, IEnumerable<string>, A> p:
-                    return await RunAsync(p.Next(await File.ReadAllLinesAsync(p.Input.Path)));
+                case P<ReadAllLines, IEnumerable<string>, A> p:
+                    // return await Run(p.Step(await File.ReadAllLinesAsync(p.Input.Path)));
+                    return await Run(p.Step(await TestRunner.ReadAllLinesAsync(p.Input.Path)));
 
-                case IO<WriteAllLines, Unit, A> p:
-                    return await RunAsync(p.Do(async x => await File.WriteAllLinesAsync(x.Path, x.Lines)));
+                case P<WriteAllLines, Unit, A> p:
+                    // return await Run(p.Do(async x => await File.WriteAllLinesAsync(x.Path, x.Lines)));
+                    return await Run(p.Do(async x => await TestRunner.WriteAllLinesAsync(x.Path, x.Lines)));
 
-                case IO<Log, Unit, A> p:
-                    return await RunAsync(p.Do(i => Console.WriteLine(i.Message)));
+                case P<Log, Unit, A> p:
+                    return await Run(p.Do(log => Console.WriteLine(log.Message)));
 
                 default:
-                    return program.Exit();
+                    return program.Return();
             }
         }
     }
 
     public static class TestRunner
     {
-        // Example of non-recursive (stack-safe) interpreter
+        public static IEnumerable<string> ReadAllLines(string path) => new[] { "Hello", "World", path };
+        public static void WriteAllLines(string path, IEnumerable<string> content) {}
+        public static Task<IEnumerable<string>> ReadAllLinesAsync(string path) => Task.FromResult(ReadAllLines(path));
+        public static Task WriteAllLinesAsync(string path, IEnumerable<string> content) => Task.CompletedTask;
+
+        // Example of non-recursive (stack-safe) runner
         public static A Run<A>(IO<A> program, bool skipLogging = false)
         {
-            IEnumerable<string> ReadAllLines(string path) => new[] { "Hello", "World", path };
-
             while (true)
                 switch (program)
                 {
-                    case IO<ReadAllLines, IEnumerable<string>, A> p:
-                        program = p.Next(ReadAllLines(p.Input.Path));
+                    case P<ReadAllLines, IEnumerable<string>, A> p:
+                        program = p.Step(ReadAllLines(p.Input.Path));
                         break;
-                    case IO<WriteAllLines, Unit, A> p:
+                    case P<WriteAllLines, Unit, A> p:
                         program = p.Skip();
                         break;
-                    case IO<Log, Unit, A> p:
+                    case P<Log, Unit, A> p:
                         program = skipLogging ? p.Skip() : p.Do(x => Console.WriteLine(x.Message));
                         break;
                     default:
-                        return program.Exit();
+                        return program.Return();
                 }
         }
     }
@@ -161,44 +175,47 @@ namespace FreeIO
     {
         public readonly A Result;
         public Return(A a) => Result = a;
-
         public IO<B> Bind<B>(Func<A, IO<B>> f) => f(Result);
     }
 
-    public class IO<I, O, A> : IO<A>
+
+    public class P<I, O, A> : IO<A>
     {
         public readonly I Input;
-        public readonly Func<O, IO<A>> Next;
+        public readonly Func<O, IO<A>> Step;
 
-        public IO(I input, Func<O, IO<A>> next) => (Input, Next) = (input, next);
+        public P(I input, Func<O, IO<A>> step) => (Input, Step) = (input, step);
 
-        public IO<B> Bind<B>(Func<A, IO<B>> f) => new IO<I, O, B>(Input, r => Next(r).Bind(f));
+        public IO<B> Bind<B>(Func<A, IO<B>> f) => new P<I, O, B>(Input, o => Step(o).Bind(f));
     }
 
     public static class IOMonad
     {
-        public static IO<A> Lift<A>(this A a) =>
+        public static Func<O, IO<B>> Free<O, A, B>(Func<O, IO<A>> io, Func<A, IO<B>> f) => 
+            o => io(o).Bind(f);
+
+        public static IO<A> Return<A>(this A a) =>
             new Return<A>(a);
 
         public static IO<B> Select<A, B>(this IO<A> m, Func<A, B> f) =>
-            m.Bind(a => f(a).Lift());
+            m.Bind(a => f(a).Return());
 
         public static IO<C> SelectMany<A, B, C>(this IO<A> m, Func<A, IO<B>> f, Func<A, B, C> project) =>
-            m.Bind(a => f(a).Bind(b => project(a, b).Lift()));
+            m.Bind(a => f(a).Bind(b => project(a, b).Return()));
 
-        public static A Exit<A>(this IO<A> m) =>
+        public static A Return<A>(this IO<A> m) =>
             ((Return<A>)m).Result;
     }
 
     public static class IOMonadSugar
     {
-        public static IO<R> ToIO<I, R>(this I input) => new IO<I, R, R>(input, IOMonad.Lift);
+        public static IO<R> ToIO<I, R>(this I input) => new P<I, R, R>(input, IOMonad.Return);
 
         public static IO<Unit> ToIO<I>(this I input) => input.ToIO<I, Unit>();
 
-        public static IO<A> Skip<I, A>(this IO<I, Unit, A> io) => io.Next(unit);
+        public static IO<A> Skip<I, A>(this P<I, Unit, A> io) => io.Step(unit);
 
-        public static IO<A> Do<I, A>(this IO<I, Unit, A> io, Action<I> effect)
+        public static IO<A> Do<I, A>(this P<I, Unit, A> io, Action<I> effect)
         {
             effect(io.Input);
             return io.Skip();
