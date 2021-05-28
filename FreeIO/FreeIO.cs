@@ -77,13 +77,14 @@ namespace FreeIO
         public Log(string message) => Message = message;
     }
 
+    // todo: @api simplify please
     public static class NumberLinesOperations
     {
         public static IO<None> WriteAllLines(string path, IEnumerable<string> lines) =>
             new WriteAllLines(path, lines).ToIO();
 
         public static IO<IEnumerable<string>> ReadAllLines(string path) =>
-            new ReadAllLines(path).ToIO<ReadAllLines, IEnumerable<string>>();
+            new ReadAllLines(path).ToIO<ReadAllLines, IEnumerable<string>>(); // todo: @api how to help the inference - default intreface impl or conversion operator?
 
         public static IO<None> Log(string message) =>
             new Log(message).ToIO();
